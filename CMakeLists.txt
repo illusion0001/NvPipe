@@ -39,10 +39,22 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 find_package(CUDA REQUIRED)
-
 # Construct path to CUDA driver API lib (not provided by FindCUDA)
 get_filename_component(CUDA_LIB_DIR ${CUDA_cudart_static_LIBRARY} DIRECTORY)
 find_library(CUDA_LIB NAMES cuda HINTS ${CUDA_LIB_DIR})
+
+set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} --std=c++11")
+include_directories(src/Video_Codec_SDK_9.0.20/Samples
+  src/Video_Codec_SDK_9.0.20/Samples/NvCodec
+  src/Video_Codec_SDK_9.0.20/include
+  ${CUDA_INCLUDE_DIRS})
+file(GLOB NVCUVID_SEARCH_PATHS "/usr/lib/nvidia-*")
+find_library(nvcuvid
+  NAMES nvcuvid
+  HINTS
+  /usr/lib
+  /usr/lib/x86_64-linux-gnu
+  ${NVCUVID_SEARCH_PATHS})
 
 # Set C++ standard
 set(CMAKE_CXX_STANDARD 11)
@@ -80,7 +92,7 @@ if (NVPIPE_WITH_DECODER)
         src/Video_Codec_SDK_9.0.20/Samples/NvCodec/NvDecoder/NvDecoder.cpp
         )
     list(APPEND NVPIPE_LIBRARIES
-        nvcuvid
+        ${nvcuvid}
         )
 
     if (WIN32)
