@@ -44,13 +44,27 @@ get_filename_component(CUDA_LIB_DIR ${CUDA_cudart_static_LIBRARY} DIRECTORY)
 find_library(CUDA_LIB NAMES cuda HINTS ${CUDA_LIB_DIR})
 
 set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} --std=c++11")
-include_directories(src/Video_Codec_SDK_9.0.20/Samples
-  src/Video_Codec_SDK_9.0.20/Samples/NvCodec
-  src/Video_Codec_SDK_9.0.20/include
+if (EXISTS ${PROJECT_SOURCE_DIR}/video-codec-sdk/Video_Codec_SDK_11.1.5)
+  set(VIDEO_CODEC_SDK_ROOT video-codec-sdk/Video_Codec_SDK_11.1.5)
+elseif(EXISTS ${PROJECT_SOURCE_DIR}/src/Video_Codec_SDK_9.0.20)
+  set(VIDEO_CODEC_SDK_ROOT src/Video_Codec_SDK_9.0.20)
+else()
+  message(FATAL_ERROR "VideoCodec SDK not found!")
+endif()
+include_directories(${VIDEO_CODEC_SDK_ROOT}/Samples
+  ${VIDEO_CODEC_SDK_ROOT}/Samples/NvCodec
+  ${VIDEO_CODEC_SDK_ROOT}/include
+  ${VIDEO_CODEC_SDK_ROOT}/Interface
   ${CUDA_INCLUDE_DIRS})
 file(GLOB NVCUVID_SEARCH_PATHS "/usr/lib/nvidia-*")
 find_library(nvcuvid
   NAMES nvcuvid
+  HINTS
+  /usr/lib
+  /usr/lib/x86_64-linux-gnu
+  ${NVCUVID_SEARCH_PATHS})
+find_library(nvidia_encode
+  NAMES nvidia-encode
   HINTS
   /usr/lib
   /usr/lib/x86_64-linux-gnu
@@ -72,7 +86,7 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR}/include)
 # NvPipe shared library
 list(APPEND NVPIPE_SOURCES
     src/NvPipe.cu
-    src/Video_Codec_SDK_9.0.20/Samples/Utils/ColorSpace.cu
+    ${VIDEO_CODEC_SDK_ROOT}/Samples/Utils/ColorSpace.cu
     )
 list(APPEND NVPIPE_LIBRARIES
     ${CMAKE_DL_LIBS}
@@ -81,15 +95,18 @@ list(APPEND NVPIPE_LIBRARIES
     )
 
 if (NVPIPE_WITH_ENCODER)
+    list(APPEND NVPIPE_LIBRARIES
+        ${nvidia_encode}
+        )
     list(APPEND NVPIPE_SOURCES
-        src/Video_Codec_SDK_9.0.20/Samples/NvCodec/NvEncoder/NvEncoder.cpp
-        src/Video_Codec_SDK_9.0.20/Samples/NvCodec/NvEncoder/NvEncoderCuda.cpp
+        ${VIDEO_CODEC_SDK_ROOT}/Samples/NvCodec/NvEncoder/NvEncoder.cpp
+        ${VIDEO_CODEC_SDK_ROOT}/Samples/NvCodec/NvEncoder/NvEncoderCuda.cpp
         )
 endif()
 
 if (NVPIPE_WITH_DECODER)    
     list(APPEND NVPIPE_SOURCES
-        src/Video_Codec_SDK_9.0.20/Samples/NvCodec/NvDecoder/NvDecoder.cpp
+        ${VIDEO_CODEC_SDK_ROOT}/Samples/NvCodec/NvDecoder/NvDecoder.cpp
         )
     list(APPEND NVPIPE_LIBRARIES
         ${nvcuvid}
@@ -97,9 +114,9 @@ if (NVPIPE_WITH_DECODER)
 
     if (WIN32)
         if (CMAKE_SIZEOF_VOID_P EQUAL 8)
-            link_directories(src/Video_Codec_SDK_9.0.20/Lib/x64)
+            link_directories(${VIDEO_CODEC_SDK_ROOT}/Lib/x64)
         elseif (CMAKE_SIZEOF_VOID_P EQUAL 4)
-            link_directories(src/Video_Codec_SDK_9.0.20/Lib/Win32)
+            link_directories(${VIDEO_CODEC_SDK_ROOT}/Lib/Win32)
         endif()    
     endif()
 endif()
@@ -112,7 +129,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC
     $<INSTALL_INTERFACE:$<INSTALL_PREFIX>/include>
     )
 target_include_directories(${PROJECT_NAME} PRIVATE
-    $<BUILD_INTERFACE:src/Video_Codec_SDK_9.0.20/Samples src/Video_Codec_SDK_9.0.20/Samples/NvCodec src/Video_Codec_SDK_9.0.20/include ${CUDA_INCLUDE_DIRS}>
+    $<BUILD_INTERFACE:${VIDEO_CODEC_SDK_ROOT}/Samples ${VIDEO_CODEC_SDK_ROOT}/Samples/NvCodec ${VIDEO_CODEC_SDK_ROOT}/include ${VIDEO_CODEC_SDK_ROOT}/Interface ${CUDA_INCLUDE_DIRS}>
     )
 target_link_libraries(${PROJECT_NAME} ${NVPIPE_LIBRARIES})
 
