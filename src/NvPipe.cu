@@ -73,12 +73,12 @@ inline void CUDA_THROW(cudaError_t code, const std::string& errorMessage)
 inline bool isDevicePointer(const void* ptr)
 {
     struct cudaPointerAttributes attr;
-    const cudaError_t perr = cudaPointerGetAttributes(&attr, ptr);
+    CUDA_THROW(cudaPointerGetAttributes(&attr, ptr), "Failed to get pointer type");
 
 #if (CUDA_VERSION >= 10000)
-    return (perr == cudaSuccess) && (attr.type != cudaMemoryTypeHost);
+    return attr.type == cudaMemoryTypeDevice || attr.type == cudaMemoryTypeManaged;
 #else
-    return (perr == cudaSuccess) && (attr.memoryType != cudaMemoryTypeHost);
+    return attr.memoryType != cudaMemoryTypeHost;
 #endif
 }
 
@@ -938,8 +938,11 @@ private:
         // Ensure we have a CUDA context
         CUDA_THROW(cudaDeviceSynchronize(),
             "Failed to synchronize device");
-        CUcontext cudaContext;
-        cuCtxGetCurrent(&cudaContext);
+        CUcontext cudaContext = nullptr;
+        if (cuCtxGetCurrent(&cudaContext) != CUDA_SUCCESS)
+        {
+            throw std::runtime_error("Failed to get cuda context");
+        }
 
         // Create decoder
         try
@@ -950,7 +953,11 @@ private:
                 this->decoder.reset();
             }
 
+#if NVENCAPI_MAJOR_VERSION >= 10
+            this->decoder = std::unique_ptr<NvDecoder>(new NvDecoder(cudaContext, true, (this->codec == NVPIPE_HEVC) ? cudaVideoCodec_HEVC : cudaVideoCodec_H264, true, false, NULL, NULL, width, height, 1000, true));
+#else
             this->decoder = std::unique_ptr<NvDecoder>(new NvDecoder(cudaContext, width, height, true, (this->codec == NVPIPE_HEVC) ? cudaVideoCodec_HEVC : cudaVideoCodec_H264,/* &Decoder::mutex*/ nullptr, true));
+#endif
         }
         catch (NVDECException& e)
         {
@@ -961,27 +968,40 @@ private:
     uint8_t* decode(const uint8_t* src, uint64_t srcSize)
     {
         int numFramesDecoded = 0;
-        uint8_t **decodedFrames;
-        int64_t *timeStamps;
+        uint8_t *decodedFrame = nullptr;
 
         try
         {
+#if NVENCAPI_MAJOR_VERSION >= 10
+          numFramesDecoded = this->decoder->Decode(src, static_cast<int>(srcSize), CUVID_PKT_ENDOFPICTURE, this->n++);
+          if (this->n == 1)
+          {
+              std::cout << this->decoder->GetVideoInfo() << std::endl;
+          }
+          for (int i = 0; i < numFramesDecoded; ++i)
+          {
+            decodedFrame = this->decoder->GetFrame();
+          }
+#else
             // Some cuvid implementations have one frame latency. Refeed frame into pipeline in this case.
+            uint8_t **decodedFrames;
+            int64_t *timeStamps;
             const uint32_t DECODE_TRIES = 3;
             for (uint32_t i = 0; (i < DECODE_TRIES) && (numFramesDecoded <= 0); ++i)
                 this->decoder->Decode(src, srcSize, &decodedFrames, &numFramesDecoded, CUVID_PKT_ENDOFPICTURE, &timeStamps, this->n++);
+            if (numFramesDecoded <= 0)
+            {
+                throw Exception("No frame decoded (Decoder expects encoded bitstream for a single complete frame. Accumulating partial data or combining multiple frames is not supported.)");
+            }
+            decodedFrame = decodedFrames[numFramesDecoded - 1];
+#endif
         }
         catch (NVDECException& e)
         {
             throw Exception("Decode failed (" + e.getErrorString() + ", error " + std::to_string(e.getErrorCode()) + " = " + DecErrorCodeToString(e.getErrorCode()) + ")");
         }
 
-        if (numFramesDecoded <= 0)
-        {
-            throw Exception("No frame decoded (Decoder expects encoded bitstream for a single complete frame. Accumulating partial data or combining multiple frames is not supported.)");
-        }
-
-        return decodedFrames[numFramesDecoded - 1];
+        return decodedFrame;
     }
 
     void recreateDeviceBuffer(uint32_t width, uint32_t height)
