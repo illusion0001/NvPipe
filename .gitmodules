@@ -1,3 +1,0 @@
-[submodule "video-codec-sdk"]
-	path = video-codec-sdk
-	url = git@github.com:GITAI/video-codec-sdk
